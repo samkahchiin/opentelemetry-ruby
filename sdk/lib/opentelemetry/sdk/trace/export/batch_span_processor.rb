@@ -189,6 +189,7 @@ module OpenTelemetry
             result_code
           rescue StandardError => e
             report_result(FAILURE, batch)
+            OpenTelemetry.handle_error(exception: ExportError.new("fail reason batch: #{e.class.to_s}"))
             @metrics_reporter.add_to_counter('otel.bsp.error', labels: { 'reason' => e.class.to_s })
             FAILURE
           end

@@ -132,6 +132,7 @@ module OpenTelemetry
         end
 
         def send_bytes(bytes, timeout:) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
+          OpenTelemetry.handle_error(message: '[Telemetry error] nil bytes') if bytes.nil?
           return FAILURE if bytes.nil?
 
           @metrics_reporter.record_value('otel.otlp_exporter.message.uncompressed_size', value: bytes.bytesize)
@@ -154,6 +155,7 @@ module OpenTelemetry
 
           around_request do # rubocop:disable Metrics/BlockLength
             remaining_timeout = OpenTelemetry::Common::Utilities.maybe_timeout(timeout, start_time)
+            OpenTelemetry.handle_error(message: '[Telemetry Error] remaining timeout') if remaining_timeout.zero?
             return FAILURE if remaining_timeout.zero?
 
             @http.open_timeout = remaining_timeout
@@ -168,44 +170,55 @@ module OpenTelemetry
               SUCCESS
             when Net::HTTPServiceUnavailable, Net::HTTPTooManyRequests
               response.body # Read and discard body
+              OpenTelemetry.handle_error(message: "[Telemetry Error] 1")
               redo if backoff?(retry_after: response['Retry-After'], retry_count: retry_count += 1, reason: response.code)
               FAILURE
             when Net::HTTPRequestTimeOut, Net::HTTPGatewayTimeOut, Net::HTTPBadGateway
               response.body # Read and discard body
+              OpenTelemetry.handle_error(message: "[Telemetry Error] 2")
               redo if backoff?(retry_count: retry_count += 1, reason: response.code)
               FAILURE
             when Net::HTTPNotFound
-              OpenTelemetry.handle_error(message: "OTLP exporter received http.code=404 for uri: '#{@path}'")
+              OpenTelemetry.handle_error(message: "[Telemetry Error] OTLP exporter received http.code=404 for uri: '#{@path}'")
               @metrics_reporter.add_to_counter('otel.otlp_exporter.failure', labels: { 'reason' => response.code })
               FAILURE
             when Net::HTTPBadRequest, Net::HTTPClientError, Net::HTTPServerError
               log_status(response.body)
+              OpenTelemetry.handle_error(message: "[Telemetry Error] 3")
               @metrics_reporter.add_to_counter('otel.otlp_exporter.failure', labels: { 'reason' => response.code })
               FAILURE
             when Net::HTTPRedirection
               @http.finish
+              OpenTelemetry.handle_error(message: "[Telemetry Error] 4")
               handle_redirect(response['location'])
               redo if backoff?(retry_after: 0, retry_count: retry_count += 1, reason: response.code)
             else
+              OpenTelemetry.handle_error(message: "[Telemetry Error] 5")
               @http.finish
               FAILURE
             end
           rescue Net::OpenTimeout, Net::ReadTimeout
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 6")
             retry if backoff?(retry_count: retry_count += 1, reason: 'timeout')
             return FAILURE
           rescue OpenSSL::SSL::SSLError
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 7")
             retry if backoff?(retry_count: retry_count += 1, reason: 'openssl_error')
             return FAILURE
           rescue SocketError
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 8")
             retry if backoff?(retry_count: retry_count += 1, reason: 'socket_error')
             return FAILURE
           rescue SystemCallError => e
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 9")
             retry if backoff?(retry_count: retry_count += 1, reason: e.class.name)
             return FAILURE
           rescue EOFError
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 10")
             retry if backoff?(retry_count: retry_count += 1, reason: 'eof_error')
             return FAILURE
           rescue Zlib::DataError
+            OpenTelemetry.handle_error(message: "[Telemetry Error] 11")
             retry if backoff?(retry_count: retry_count += 1, reason: 'zlib_error')
             return FAILURE
           rescue StandardError => e

@@ -186,6 +186,7 @@ module OpenTelemetry
           def export_batch(batch, timeout: @exporter_timeout_seconds)
             result_code = @export_mutex.synchronize { @exporter.export(batch, timeout: timeout) }
             report_result(result_code, batch)
+            OpenTelemetry.handle_error(exception: ExportError.new('Before standard error'))
             result_code
           rescue StandardError => e
             report_result(FAILURE, batch)
@@ -199,7 +200,7 @@ module OpenTelemetry
               @metrics_reporter.add_to_counter('otel.bsp.export.success')
               @metrics_reporter.add_to_counter('otel.bsp.exported_spans', increment: batch.size)
             else
-              OpenTelemetry.handle_error(exception: ExportError.new("Unable to export #{batch.size} spans"))
+              OpenTelemetry.handle_error(exception: ExportError.new("Unable to export #{batch.size} hello spans"))
               @metrics_reporter.add_to_counter('otel.bsp.export.failure')
               report_dropped_spans(batch.size, reason: 'export-failure')
             end
